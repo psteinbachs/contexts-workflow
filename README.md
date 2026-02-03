@@ -4,6 +4,13 @@ Session memory and environment management for Claude Code.
 
 Claude Code has no memory between sessions. This project gives it one: automatic session save/restore, multi-environment switching, and context lifecycle hooks that prevent lost work when the context window fills up.
 
+This is the deployment wrapper around two core projects:
+
+- **[contexts-mcp](https://github.com/psteinbachs/mcp-contexts)** -- Session storage, environment management, and context lifecycle API (backed by Qdrant)
+- **[relay-mcp](https://github.com/psteinbachs/mcp-relay)** -- MCP proxy that routes tool calls to per-environment server pools
+
+This repo adds the hooks, templates, Docker Compose stack, and installer that wire everything into Claude Code (and Zed).
+
 ## Architecture
 
 ```
