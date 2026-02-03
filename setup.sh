@@ -55,12 +55,16 @@ install_hooks() {
     info "Installing hooks..."
 
     # Create directories
-    mkdir -p "$HOOKS_DIR/lib" "$ENV_DIR"
+    mkdir -p "$HOOKS_DIR/lib" "$CLAUDE_DIR/lib" "$ENV_DIR"
 
     # Copy env-detect library
     cp "$SCRIPT_DIR/hooks/lib/env-detect.sh" "$HOOKS_DIR/lib/env-detect.sh"
     chmod +x "$HOOKS_DIR/lib/env-detect.sh"
     ok "env-detect.sh library"
+
+    # Copy env-detect library to ~/.claude/lib (for statusline.sh)
+    cp "$SCRIPT_DIR/hooks/lib/env-detect.sh" "$CLAUDE_DIR/lib/env-detect.sh"
+    chmod +x "$CLAUDE_DIR/lib/env-detect.sh"
 
     # Copy hook scripts (backup existing)
     for hook in context-monitor.sh context-autosave.sh session-restore.sh precompact-save.sh; do
