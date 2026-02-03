@@ -1,0 +1,39 @@
+version: "3.8"
+
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - contexts-net
+    restart: unless-stopped
+
+  relay-mcp:
+    build: ./relay-mcp
+    volumes:
+      - relay_data:/data
+    networks:
+      - contexts-net
+    restart: unless-stopped
+
+  contexts-mcp:
+    build: ./contexts-mcp
+    ports:
+      - "${CONTEXTS_PORT:-8100}:8000"
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    networks:
+      - contexts-net
+    depends_on:
+      - qdrant
+      - relay-mcp
+    restart: unless-stopped
+
+volumes:
+  qdrant_data:
+  relay_data:
+
+networks:
+  contexts-net:
+    driver: bridge

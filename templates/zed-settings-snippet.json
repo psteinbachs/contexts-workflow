@@ -1,0 +1,16 @@
+{
+  "agent_servers": {
+    "claude": {
+      "env": {
+        "CLAUDE_CODE_EXECUTABLE": "$CLAUDE_BIN",
+        "CLAUDE_SESSION_ID": "zed"
+      }
+    }
+  },
+  "context_servers": {
+    "contexts-mcp": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "http://localhost:8100/mcp/sse", "--allow-http"]
+    }
+  }
+}

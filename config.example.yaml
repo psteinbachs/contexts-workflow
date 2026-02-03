@@ -1,0 +1,25 @@
+# contexts-mcp configuration
+# Copy to config.yaml and customize for your setup
+
+qdrant:
+  url: http://qdrant:6333
+  collection: sessions
+
+# Environments define isolated workspaces with their own session history,
+# MCP server routing, and optional safety rules (critical directives).
+environments:
+  dev:
+    description: "Development environment"
+    relay_url: http://relay-mcp:8000
+    # statusline:
+    #   bg_rgb: "76;86;106"
+    #   icon: ""
+
+  # Example: production environment with a critical directive
+  # prod:
+  #   description: "Production infrastructure"
+  #   relay_url: http://relay-mcp:8000
+  #   critical_directive: "Never modify production databases without explicit approval"
+  #   statusline:
+  #     bg_rgb: "191;97;106"
+  #     icon: ""
