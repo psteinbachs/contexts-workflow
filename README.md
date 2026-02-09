@@ -2,7 +2,7 @@
 
 Session memory and environment management for Claude Code.
 
-Claude Code has no memory between sessions. This project gives it one: automatic session save/restore, multi-environment switching, persistent knowledge storage (Pensieve), and context lifecycle hooks that prevent lost work when the context window fills up.
+Claude Code recently added built-in memory via MEMORY.md, which persists notes across sessions. This project extends that with: automatic session save/restore, multi-environment switching, persistent knowledge storage (Pensieve), and context lifecycle hooks that prevent lost work when the context window fills up.
 
 This is the deployment wrapper around two core projects:
 
