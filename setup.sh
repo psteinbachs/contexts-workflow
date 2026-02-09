@@ -98,6 +98,24 @@ install_hooks() {
     substitute_url "$CLAUDE_DIR/statusline.sh"
     ok "statusline.sh"
 
+    # Install pensieve CLI
+    local bin_dir="$CLAUDE_DIR/bin"
+    mkdir -p "$bin_dir"
+    if [[ -f "$bin_dir/pensieve" ]]; then
+        cp "$bin_dir/pensieve" "$bin_dir/pensieve.bak.${TIMESTAMP}"
+        warn "Backed up existing pensieve"
+    fi
+    cp "$SCRIPT_DIR/bin/pensieve" "$bin_dir/pensieve"
+    chmod +x "$bin_dir/pensieve"
+    substitute_url "$bin_dir/pensieve"
+    ok "pensieve CLI"
+
+    # Add ~/.claude/bin to PATH hint
+    if ! echo "$PATH" | tr ':' '\n' | grep -q "$bin_dir"; then
+        info "Add to your shell profile: export PATH=\"\$HOME/.claude/bin:\$PATH\""
+    fi
+
+
     # Copy contexts-workflow.md template
     if [[ -f "$CLAUDE_DIR/contexts-workflow.md" ]]; then
         cp "$CLAUDE_DIR/contexts-workflow.md" "$CLAUDE_DIR/contexts-workflow.md.bak.${TIMESTAMP}"
@@ -426,6 +444,7 @@ echo "    ~/.claude/statusline.sh"
 echo "    ~/.claude/contexts-workflow.md"
 echo "    ~/.claude/settings.json (merged)"
 echo "    ~/.claude/CLAUDE.md (@contexts-workflow.md added)"
+echo "    ~/.claude/bin/pensieve"
 if [[ -f "$HOME/.config/zed/settings.json" ]]; then
 echo "    ~/.config/zed/settings.json (agent_servers + context_servers)"
 fi

@@ -1,0 +1,28 @@
+---
+env: dev
+category: ideas
+title: Implement user notifications
+tags: backend,api
+source: brainstorm
+urgency: high
+content:
+Add push notification support. Consider WebSockets for real-time delivery, with fallback to polling. Need to decide on notification storage (ephemeral vs persistent) and read/unread tracking.
+---
+env: dev
+category: ideas
+title: Dashboard performance optimization
+tags: frontend,performance
+source: brainstorm
+urgency: med
+content:
+Dashboard loads slowly with large datasets. Consider: virtual scrolling for tables, memoization of expensive computed values, lazy loading of chart components. Profile first to identify actual bottlenecks.
+---
+env: global
+category: patterns
+title: API error handling convention
+tags: api,errors,standards
+source: brainstorm
+urgency: low
+content:
+Standardize API error responses across all services. Use RFC 7807 Problem Details format. Include: type URI, title, status, detail, and optional instance. Wrap all handler errors through a central error middleware.
+---

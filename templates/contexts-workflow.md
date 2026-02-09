@@ -36,6 +36,7 @@
    - Environment name, token status
    - **Critical directive** (if present) - display prominently
    - MCP servers table (name, tool count, status)
+   - **Priorities** (from `context.priorities` in bootstrap) - if any, show as table: urgency, category, title
    - Last session info (task, context, next steps, key artifacts if any)
    - "Ready."
 
@@ -91,6 +92,7 @@ On restore (`rs`), these artifacts are displayed so the next session knows to re
    - Environment name, token status
    - **Critical directive** (if present) - display prominently
    - MCP servers table (name, tool count, status)
+   - **Priorities** (from `context.priorities` in bootstrap) - if any, show as table: urgency, category, title
    - "Ready."
 
 ---
@@ -123,6 +125,7 @@ For detailed knowledge beyond session restore:
 | ss | Save session to qdrant |
 | rs | Restore session from qdrant |
 | st | Show MCP tools (servers + tool counts) |
+| pb | Search pensieve: `pensieve search "<query>" --env <env>` |
 
 ### When user types `st`:
 Get current environment from statusline, load its token, query the correct relay:

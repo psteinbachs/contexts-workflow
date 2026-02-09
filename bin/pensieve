@@ -1,0 +1,275 @@
+#!/usr/bin/env bash
+# pensieve - Extract memories and store them in Qdrant
+#
+# "I use the Pensieve. One simply siphons the excess thoughts from one's mind,
+#  pours them into the basin, and examines them at one's leisure."
+#  — Albus Dumbledore
+#
+# Usage:
+#   pensieve add <env> <category> <title> [--tags t1,t2] [--source x] [--urgency low|med|high|critical] -m "content"
+#   pensieve add <env> <category> <title> [--tags t1,t2] [--source x] [--urgency med] -f file.md
+#   pensieve add <env> <category> <title> [--tags t1,t2] [--source x] [--urgency high] < content
+#   pensieve search <query> [--env <env>] [--category <cat>] [--limit N]
+#   pensieve remove <point_id>
+#   pensieve import <file.yaml>
+#   pensieve list [--env <env>]
+#
+# Environments: alloy, homelab, nexus, latitude (or "global" for cross-cutting)
+# Categories:   ideas, infrastructure, patterns, procedures, discipline, dragons
+# Sources:      phils-brain, session, auto-discovery (default: none)
+# Urgency:      low, med, high, critical (default: none)
+
+set -euo pipefail
+
+CONTEXT_API="${CONTEXTS_URL:-http://localhost:8100}"
+
+usage() {
+  sed -n '3,20p' "$0" | sed 's/^# \?//'
+  exit 1
+}
+
+# Build the final tags string from base tags + source + urgency
+_build_tags() {
+  local base_tags="$1" source="$2" urgency="$3"
+  local result="$base_tags"
+
+  if [[ -n "$source" ]]; then
+    [[ -n "$result" ]] && result+=","
+    result+="source:$source"
+  fi
+
+  if [[ -n "$urgency" ]]; then
+    [[ -n "$result" ]] && result+=","
+    result+="urgency:$urgency"
+  fi
+
+  echo "$result"
+}
+
+cmd_add() {
+  local env="" category="" title="" tags="" content="" msg="" file=""
+  local source="" urgency=""
+
+  env="$1"; shift
+  category="$1"; shift
+  title="$1"; shift
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --tags)    tags="$2"; shift 2 ;;
+      --source)  source="$2"; shift 2 ;;
+      --urgency) urgency="$2"; shift 2 ;;
+      -m)        msg="$2"; shift 2 ;;
+      -f)        file="$2"; shift 2 ;;
+      *)         echo "Unknown arg: $1"; exit 1 ;;
+    esac
+  done
+
+  # Content source: -m message, -f file, or stdin
+  if [[ -n "$msg" ]]; then
+    content="$msg"
+  elif [[ -n "$file" ]]; then
+    content=$(cat "$file")
+  elif [[ ! -t 0 ]]; then
+    content=$(cat)
+  else
+    echo "Error: provide content via -m, -f, or stdin"
+    exit 1
+  fi
+
+  # Merge tags
+  tags=$(_build_tags "$tags" "$source" "$urgency")
+
+  # Handle "global" or empty env
+  local env_json
+  if [[ "$env" == "global" || "$env" == "-" ]]; then
+    env_json="null"
+  else
+    env_json="\"$env\""
+  fi
+
+  # Build tags array
+  local tags_json="null"
+  if [[ -n "$tags" ]]; then
+    tags_json=$(echo "$tags" | tr ',' '\n' | jq -R . | jq -s .)
+  fi
+
+  local payload
+  payload=$(jq -n \
+    --argjson env "$env_json" \
+    --arg category "$category" \
+    --arg title "$title" \
+    --arg content "$content" \
+    --argjson tags "$tags_json" \
+    '{environment: $env, category: $category, title: $title, content: $content, tags: $tags}')
+
+  local result
+  result=$(curl -s -X POST "$CONTEXT_API/context" \
+    -H "Content-Type: application/json" \
+    -d "$payload")
+
+  echo "Memory extracted: $title"
+  echo "$result" | jq -r '.id // .point_id // "stored"' 2>/dev/null | sed 's/^/  id: /'
+}
+
+cmd_search() {
+  local query="" env="" category="" limit=10
+
+  query="$1"; shift
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --env)      env="$2"; shift 2 ;;
+      --category) category="$2"; shift 2 ;;
+      --limit)    limit="$2"; shift 2 ;;
+      *)          echo "Unknown arg: $1"; exit 1 ;;
+    esac
+  done
+
+  local params="query=$(jq -rn --arg q "$query" '$q | @uri')&limit=$limit"
+  [[ -n "$env" ]] && params+="&environment=$env"
+  [[ -n "$category" ]] && params+="&category=$category"
+
+  curl -s "$CONTEXT_API/context?$params" | jq -r '
+    .results[] |
+    # Extract urgency and source from tags
+    ((.tags // []) | map(select(startswith("urgency:"))) | first // "" | ltrimstr("urgency:")) as $urg |
+    ((.tags // []) | map(select(startswith("source:")))  | first // "" | ltrimstr("source:")) as $src |
+    ((.tags // []) | map(select((startswith("urgency:") or startswith("source:")) | not))) as $other_tags |
+    "[\(.id // .point_id)] [\(.environment // "global")] [\(.category)]\(if $urg != "" then " [\($urg)]" else "" end)\(if $src != "" then " (\($src))" else "" end) \(.title)\n  \(.content[:120])...\n  tags: \($other_tags | join(", "))\n"
+  '
+}
+
+cmd_remove() {
+  local point_id="$1"
+  curl -s -X DELETE "$CONTEXT_API/context/$point_id" | jq .
+  echo "Memory obliviated."
+}
+
+_store_entry() {
+  # Args: env category title tags content
+  local env="$1" category="$2" title="$3" tags="$4" content="$5"
+
+  local env_json
+  if [[ "$env" == "global" || "$env" == "-" ]]; then
+    env_json="null"
+  else
+    env_json="\"$env\""
+  fi
+
+  local tags_json="null"
+  if [[ -n "$tags" ]]; then
+    tags_json=$(echo "$tags" | tr ',' '\n' | jq -R . | jq -s .)
+  fi
+
+  local payload
+  payload=$(jq -n \
+    --argjson env "$env_json" \
+    --arg category "$category" \
+    --arg title "$title" \
+    --arg content "$content" \
+    --argjson tags "$tags_json" \
+    '{environment: $env, category: $category, title: $title, content: $content, tags: $tags}')
+
+  local result
+  result=$(curl -s -X POST "$CONTEXT_API/context" \
+    -H "Content-Type: application/json" \
+    -d "$payload")
+
+  local id
+  id=$(echo "$result" | jq -r '.id // .point_id // "stored"' 2>/dev/null)
+  echo "  Memory extracted: $title (id: $id)"
+}
+
+cmd_import() {
+  local file="$1"
+
+  if [[ ! -f "$file" ]]; then
+    echo "File not found: $file"
+    exit 1
+  fi
+
+  local count=0
+  local env="" category="" title="" tags="" source="" urgency="" content=""
+  local in_content=false
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" == "---" ]]; then
+      if [[ -n "$title" && -n "$content" ]]; then
+        tags=$(_build_tags "$tags" "$source" "$urgency")
+        _store_entry "$env" "$category" "$title" "$tags" "$content"
+        count=$((count + 1))
+      fi
+      env="" category="" title="" tags="" source="" urgency="" content=""
+      in_content=false
+      continue
+    fi
+
+    if [[ "$in_content" == false ]]; then
+      case "$line" in
+        env:*)      env="${line#env: }" ;;
+        category:*) category="${line#category: }" ;;
+        title:*)    title="${line#title: }" ;;
+        tags:*)     tags="${line#tags: }" ;;
+        source:*)   source="${line#source: }" ;;
+        urgency:*)  urgency="${line#urgency: }" ;;
+        content:*)
+          in_content=true
+          content="${line#content: }"
+          [[ "$content" == "content:" ]] && content=""
+          ;;
+      esac
+    else
+      if [[ -n "$content" ]]; then
+        content+=$'\n'"$line"
+      else
+        content="$line"
+      fi
+    fi
+  done < "$file"
+
+  # Last entry (if file doesn't end with ---)
+  if [[ -n "$title" && -n "$content" ]]; then
+    tags=$(_build_tags "$tags" "$source" "$urgency")
+    _store_entry "$env" "$category" "$title" "$tags" "$content"
+    count=$((count + 1))
+  fi
+
+  echo ""
+  echo "Imported $count memories into the Pensieve."
+}
+
+cmd_list() {
+  local env=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --env) env="$2"; shift 2 ;;
+      *)     echo "Unknown arg: $1"; exit 1 ;;
+    esac
+  done
+
+  local params="query=*&limit=50"
+  [[ -n "$env" ]] && params+="&environment=$env"
+
+  curl -s "$CONTEXT_API/context?$params" | jq -r '
+    .results[] |
+    ((.tags // []) | map(select(startswith("urgency:"))) | first // "" | ltrimstr("urgency:")) as $urg |
+    ((.tags // []) | map(select(startswith("source:")))  | first // "" | ltrimstr("source:")) as $src |
+    ((.tags // []) | map(select((startswith("urgency:") or startswith("source:")) | not))) as $other_tags |
+    "[\(.id // .point_id)] [\(.environment // "global")] [\(.category)]\(if $urg != "" then " [\($urg)]" else "" end)\(if $src != "" then " (\($src))" else "" end) \(.title)  tags: \($other_tags | join(", "))"
+  '
+}
+
+# --- Main ---
+
+[[ $# -lt 1 ]] && usage
+
+case "$1" in
+  add)    shift; cmd_add "$@" ;;
+  search) shift; cmd_search "$@" ;;
+  remove) shift; cmd_remove "$@" ;;
+  import) shift; cmd_import "$@" ;;
+  list)   shift; cmd_list "$@" ;;
+  help|-h|--help) usage ;;
+  *)      echo "Unknown command: $1"; usage ;;
+esac
