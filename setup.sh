@@ -27,11 +27,11 @@ resolve_path() {
     local target="$1"
     if command -v realpath &>/dev/null; then
         realpath "$target" 2>/dev/null || echo "$target"
-    elif readlink -f "$target" &>/dev/null 2>&1; then
-        readlink -f "$target"
+    elif readlink -f / &>/dev/null; then
+        readlink -f "$target" 2>/dev/null || echo "$target"
     else
-        # Python fallback (available on macOS)
-        python3 -c "import os; print(os.path.realpath('$target'))" 2>/dev/null || echo "$target"
+        # Python fallback (available on macOS) — pass via argv to avoid injection
+        python3 -c "import os, sys; print(os.path.realpath(sys.argv[1]))" "$target" 2>/dev/null || echo "$target"
     fi
 }
 
