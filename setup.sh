@@ -10,6 +10,31 @@ CLAUDE_DIR="$HOME/.claude"
 HOOKS_DIR="$CLAUDE_DIR/hooks"
 ENV_DIR="$CLAUDE_DIR/env"
 
+# Platform detection
+OS="$(uname -s)"
+
+# Portable sed -i (BSD sed on macOS requires '' as backup extension arg)
+sed_inplace() {
+    if [[ "$OS" == "Darwin" ]]; then
+        sed -i '' "$@"
+    else
+        sed -i "$@"
+    fi
+}
+
+# Portable readlink -f (macOS lacks GNU readlink)
+resolve_path() {
+    local target="$1"
+    if command -v realpath &>/dev/null; then
+        realpath "$target" 2>/dev/null || echo "$target"
+    elif readlink -f "$target" &>/dev/null 2>&1; then
+        readlink -f "$target"
+    else
+        # Python fallback (available on macOS)
+        python3 -c "import os; print(os.path.realpath('$target'))" 2>/dev/null || echo "$target"
+    fi
+}
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -45,7 +70,7 @@ check_common_prereqs() {
 substitute_url() {
     local file="$1"
     if [[ "$CONTEXTS_URL" != "localhost:8100" ]]; then
-        sed -i "s|localhost:8100|${CONTEXTS_URL}|g" "$file"
+        sed_inplace "s|localhost:8100|${CONTEXTS_URL}|g" "$file"
     fi
 }
 
@@ -148,7 +173,7 @@ install_hooks() {
         local env_name="${FIRST_ENV:-dev}"
         cp "$SCRIPT_DIR/templates/env/example.md" "$ENV_DIR/${env_name}.md"
         if [[ "$env_name" != "dev" ]]; then
-            sed -i "s/# dev/# ${env_name}/g; s/environment=dev/environment=${env_name}/g" "$ENV_DIR/${env_name}.md"
+            sed_inplace "s/# dev/# ${env_name}/g; s/environment=dev/environment=${env_name}/g" "$ENV_DIR/${env_name}.md"
         fi
         substitute_url "$ENV_DIR/${env_name}.md"
         ok "Created env file: ${env_name}.md"
@@ -260,7 +285,7 @@ configure_zed() {
     real_claude=$(command -v claude 2>/dev/null || true)
     if [[ -n "$real_claude" ]]; then
         # Resolve through aliases/symlinks to get directory
-        real_claude=$(readlink -f "$real_claude" 2>/dev/null || echo "$real_claude")
+        real_claude=$(resolve_path "$real_claude")
         local claude_dir
         claude_dir=$(dirname "$real_claude")
         if [[ -x "${claude_dir}/claude-wrapped" ]]; then
@@ -405,8 +430,8 @@ else
 
     # Update config with environment name if not dev
     if [[ "$FIRST_ENV" != "dev" ]]; then
-        sed -i "s/^  dev:/  ${FIRST_ENV}:/" "$SCRIPT_DIR/config.yaml"
-        sed -i "s/Development environment/${FIRST_ENV} environment/" "$SCRIPT_DIR/config.yaml"
+        sed_inplace "s/^  dev:/  ${FIRST_ENV}:/" "$SCRIPT_DIR/config.yaml"
+        sed_inplace "s/Development environment/${FIRST_ENV} environment/" "$SCRIPT_DIR/config.yaml"
     fi
 
     echo ""
