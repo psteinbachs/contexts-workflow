@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+# claude-env — Launch Claude Code with environment-specific credentials
+# Usage: claude-env <environment> [claude args...]
+#
+# Reads auth config from contexts-mcp bootstrap endpoint.
+# For oauth type: activates the named credential profile before launch.
+# For api_key type: exports the named environment variable as ANTHROPIC_API_KEY.
+# If no auth block or contexts-mcp unreachable: launches without credential switching.
+set -euo pipefail
+
+CONTEXTS_URL="${CONTEXTS_URL:-localhost:8100}"
+CRED_DIR="$HOME/.claude/credentials"
+CLAUDE_CRED_FILE="$HOME/.claude/.credentials.json"
+KEYCHAIN_SERVICE="Claude Code-credentials"
+KEYCHAIN_ACCOUNT="Claude Code"
+
+die()  { echo "claude-env: error: $*" >&2; exit 1; }
+warn() { echo "claude-env: warning: $*" >&2; }
+
+# --- Args ---
+if [[ $# -lt 1 ]]; then
+    echo "Usage: claude-env <environment> [claude args...]" >&2
+    exit 1
+fi
+
+ENV="$1"; shift
+
+# --- Detect platform ---
+OS="$(uname -s)"
+case "$OS" in
+    Linux)  PLATFORM="linux" ;;
+    Darwin) PLATFORM="macos" ;;
+    *)      die "Unsupported platform: $OS" ;;
+esac
+
+# --- Fetch bootstrap for auth config ---
+AUTH_TYPE=""
+AUTH_PROFILE=""
+AUTH_ENV_VAR=""
+
+bootstrap_json=$(curl -sf --connect-timeout 3 "http://${CONTEXTS_URL}/bootstrap/${ENV}" 2>/dev/null) || {
+    warn "Could not reach contexts-mcp at ${CONTEXTS_URL} — launching without credential switching"
+    export CLAUDE_MCP_ENV="$ENV"
+    exec claude "$@"
+}
+
+# Parse auth block (may be null)
+AUTH_TYPE=$(echo "$bootstrap_json" | jq -r '.auth.type // empty')
+AUTH_PROFILE=$(echo "$bootstrap_json" | jq -r '.auth.profile // empty')
+AUTH_ENV_VAR=$(echo "$bootstrap_json" | jq -r '.auth.env_var // empty')
+
+# --- No auth block: launch normally ---
+if [[ -z "$AUTH_TYPE" ]]; then
+    export CLAUDE_MCP_ENV="$ENV"
+    exec claude "$@"
+fi
+
+# --- Handle api_key type ---
+if [[ "$AUTH_TYPE" == "api_key" ]]; then
+    if [[ -z "$AUTH_ENV_VAR" ]]; then
+        die "auth.type is api_key but auth.env_var is not set for environment '$ENV'"
+    fi
+    # Resolve the named env var
+    KEY_VALUE="${!AUTH_ENV_VAR:-}"
+    if [[ -z "$KEY_VALUE" ]]; then
+        die "Environment variable '$AUTH_ENV_VAR' is not set"
+    fi
+    export ANTHROPIC_API_KEY="$KEY_VALUE"
+    export CLAUDE_MCP_ENV="$ENV"
+    exec claude "$@"
+fi
+
+# --- Handle oauth type ---
+if [[ "$AUTH_TYPE" != "oauth" ]]; then
+    die "Unknown auth type: $AUTH_TYPE"
+fi
+
+if [[ -z "$AUTH_PROFILE" ]]; then
+    die "auth.type is oauth but auth.profile is not set for environment '$ENV'"
+fi
+
+PROFILE_FILE="${CRED_DIR}/${AUTH_PROFILE}.json"
+if [[ ! -f "$PROFILE_FILE" ]]; then
+    die "Profile file not found: $PROFILE_FILE — run 'claude-env-setup $AUTH_PROFILE' first"
+fi
+
+# Validate profile has required fields
+if ! jq -e '.claudeAiOauth.accessToken' "$PROFILE_FILE" >/dev/null 2>&1; then
+    die "Profile '$AUTH_PROFILE' is missing claudeAiOauth.accessToken"
+fi
+
+# --- Activate credentials (platform-specific) ---
+activate_linux() {
+    local profile_file="$1"
+
+    # Compare with current credentials — skip if already active
+    if [[ -f "$CLAUDE_CRED_FILE" ]]; then
+        local current_token profile_token
+        current_token=$(jq -r '.claudeAiOauth.accessToken // empty' "$CLAUDE_CRED_FILE" 2>/dev/null)
+        profile_token=$(jq -r '.claudeAiOauth.accessToken // empty' "$profile_file" 2>/dev/null)
+        if [[ "$current_token" == "$profile_token" ]]; then
+            return 0
+        fi
+    fi
+
+    cp "$profile_file" "$CLAUDE_CRED_FILE"
+    chmod 600 "$CLAUDE_CRED_FILE"
+}
+
+activate_macos() {
+    local profile_file="$1"
+    local profile_data
+    profile_data=$(cat "$profile_file")
+
+    # Read current Keychain entry
+    local current_data
+    current_data=$(security find-generic-password -s "$KEYCHAIN_SERVICE" -w 2>/dev/null) || current_data=""
+
+    # Compare access tokens — skip if already active
+    if [[ -n "$current_data" ]]; then
+        local current_token profile_token
+        current_token=$(echo "$current_data" | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null)
+        profile_token=$(echo "$profile_data" | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null)
+        if [[ "$current_token" == "$profile_token" ]]; then
+            return 0
+        fi
+    fi
+
+    # Delete old entry (ignore errors if none exists)
+    security delete-generic-password -s "$KEYCHAIN_SERVICE" 2>/dev/null || true
+
+    # Add new entry
+    security add-generic-password \
+        -s "$KEYCHAIN_SERVICE" \
+        -a "$KEYCHAIN_ACCOUNT" \
+        -w "$profile_data" 2>/dev/null || {
+        warn "Keychain update failed — you may need to unlock your Keychain"
+        warn "Try: security unlock-keychain ~/Library/Keychains/login.keychain-db"
+        die "Cannot activate profile '$AUTH_PROFILE'"
+    }
+}
+
+case "$PLATFORM" in
+    linux) activate_linux "$PROFILE_FILE" ;;
+    macos) activate_macos "$PROFILE_FILE" ;;
+esac
+
+export CLAUDE_MCP_ENV="$ENV"
+exec claude "$@"

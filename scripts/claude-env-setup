@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# claude-env-setup — Capture current Claude Code credentials into a named profile
+# Usage: claude-env-setup <profile-name>
+#
+# Reads the active OAuth credentials from the OS credential store
+# and saves them to ~/.claude/credentials/<profile-name>.json
+#
+# Setup flow:
+#   1. Log into Claude with desired account
+#   2. Run: claude-env-setup personal
+#   3. Log into another account
+#   4. Run: claude-env-setup work
+set -euo pipefail
+
+CRED_DIR="$HOME/.claude/credentials"
+CLAUDE_CRED_FILE="$HOME/.claude/.credentials.json"
+KEYCHAIN_SERVICE="Claude Code-credentials"
+
+die()  { echo "claude-env-setup: error: $*" >&2; exit 1; }
+info() { echo "claude-env-setup: $*"; }
+
+# --- Args ---
+if [[ $# -lt 1 ]]; then
+    echo "Usage: claude-env-setup <profile-name>" >&2
+    echo "" >&2
+    echo "Captures the currently active Claude Code credentials" >&2
+    echo "into ~/.claude/credentials/<profile-name>.json" >&2
+    echo "" >&2
+    echo "Examples:" >&2
+    echo "  claude-env-setup personal    # after logging in with personal account" >&2
+    echo "  claude-env-setup work        # after logging in with work account" >&2
+    exit 1
+fi
+
+PROFILE_NAME="$1"
+
+# Validate profile name (alphanumeric, hyphens, underscores)
+if [[ ! "$PROFILE_NAME" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+    die "Profile name must be alphanumeric (hyphens and underscores allowed): $PROFILE_NAME"
+fi
+
+# --- Detect platform ---
+OS="$(uname -s)"
+case "$OS" in
+    Linux)  PLATFORM="linux" ;;
+    Darwin) PLATFORM="macos" ;;
+    *)      die "Unsupported platform: $OS" ;;
+esac
+
+# --- Create credentials directory ---
+mkdir -p "$CRED_DIR"
+chmod 700 "$CRED_DIR"
+
+# --- Read active credentials (platform-specific) ---
+CRED_DATA=""
+
+case "$PLATFORM" in
+    linux)
+        if [[ ! -f "$CLAUDE_CRED_FILE" ]]; then
+            die "No credentials found at $CLAUDE_CRED_FILE — log into Claude Code first"
+        fi
+        CRED_DATA=$(cat "$CLAUDE_CRED_FILE")
+        ;;
+    macos)
+        CRED_DATA=$(security find-generic-password -s "$KEYCHAIN_SERVICE" -w 2>/dev/null) || {
+            die "No credentials found in Keychain (service: $KEYCHAIN_SERVICE) — log into Claude Code first"
+        }
+        ;;
+esac
+
+if [[ -z "$CRED_DATA" ]]; then
+    die "Credentials are empty — log into Claude Code first"
+fi
+
+# --- Validate JSON structure ---
+if ! echo "$CRED_DATA" | jq -e '.claudeAiOauth.accessToken' >/dev/null 2>&1; then
+    die "Credentials missing claudeAiOauth.accessToken — is Claude Code authenticated?"
+fi
+
+# --- Check for existing profile ---
+PROFILE_FILE="${CRED_DIR}/${PROFILE_NAME}.json"
+if [[ -f "$PROFILE_FILE" ]]; then
+    info "Overwriting existing profile: $PROFILE_NAME"
+fi
+
+# --- Write profile ---
+echo "$CRED_DATA" | jq '.' > "$PROFILE_FILE"
+chmod 600 "$PROFILE_FILE"
+
+# --- Extract account info for confirmation ---
+# Try to show some identifying info without exposing secrets
+ACCOUNT_EMAIL=$(echo "$CRED_DATA" | jq -r '.claudeAiOauth.email // empty' 2>/dev/null)
+EXPIRES_AT=$(echo "$CRED_DATA" | jq -r '.claudeAiOauth.expiresAt // empty' 2>/dev/null)
+
+info "Profile saved: $PROFILE_FILE"
+if [[ -n "$ACCOUNT_EMAIL" ]]; then
+    info "Account: $ACCOUNT_EMAIL"
+fi
+if [[ -n "$EXPIRES_AT" ]]; then
+    info "Token expires: $EXPIRES_AT"
+fi
+info ""
+info "Use in config.yaml:"
+info "  auth:"
+info "    type: oauth"
+info "    profile: $PROFILE_NAME"

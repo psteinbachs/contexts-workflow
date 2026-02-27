@@ -88,8 +88,18 @@ On restore (`rs`), these artifacts are displayed so the next session knows to re
    ```bash
    curl -s http://localhost:8100/bootstrap/<env>
    ```
-5. Display summary only (run all commands silently, no curl output):
+5. **Auth profile check**: If bootstrap returns an `auth` block with `type: oauth`:
+   - Read the profile from `~/.claude/credentials/<auth.profile>.json`
+   - Compare with current active credentials:
+     - **Linux**: compare `claudeAiOauth.accessToken` with `~/.claude/.credentials.json`
+     - **macOS**: compare with `security find-generic-password -s "Claude Code-credentials" -w`
+   - If tokens differ: activate the new profile (copy/Keychain update), then display:
+     **"Credentials updated to '<profile>'. Restart Claude to activate."**
+   - If same: no action needed
+   - If profile file missing: warn and continue without switching
+6. Display summary only (run all commands silently, no curl output):
    - Environment name, token status
+   - **Auth profile** (if present) — show profile name and whether it matches current session
    - **Critical directive** (if present) - display prominently
    - MCP servers table (name, tool count, status)
    - **Priorities** (from `context.priorities` in bootstrap) - if any, show as table: urgency, category, title

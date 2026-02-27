@@ -98,6 +98,12 @@ install_hooks() {
     substitute_url "$CLAUDE_DIR/statusline.sh"
     ok "statusline.sh"
 
+    # Create credentials directory for multi-account auth
+    local cred_dir="$CLAUDE_DIR/credentials"
+    mkdir -p "$cred_dir"
+    chmod 700 "$cred_dir"
+    ok "credentials directory ($cred_dir)"
+
     # Install pensieve CLI
     local bin_dir="$CLAUDE_DIR/bin"
     mkdir -p "$bin_dir"
@@ -109,6 +115,18 @@ install_hooks() {
     chmod +x "$bin_dir/pensieve"
     substitute_url "$bin_dir/pensieve"
     ok "pensieve CLI"
+
+    # Install claude-env launcher
+    for script in claude-env claude-env-setup; do
+        if [[ -f "$bin_dir/$script" ]]; then
+            cp "$bin_dir/$script" "$bin_dir/${script}.bak.${TIMESTAMP}"
+            warn "Backed up existing $script"
+        fi
+        cp "$SCRIPT_DIR/scripts/$script" "$bin_dir/$script"
+        chmod +x "$bin_dir/$script"
+        substitute_url "$bin_dir/$script"
+        ok "$script"
+    done
 
     # Add ~/.claude/bin to PATH hint
     if ! echo "$PATH" | tr ':' '\n' | grep -q "$bin_dir"; then
@@ -445,9 +463,20 @@ echo "    ~/.claude/contexts-workflow.md"
 echo "    ~/.claude/settings.json (merged)"
 echo "    ~/.claude/CLAUDE.md (@contexts-workflow.md added)"
 echo "    ~/.claude/bin/pensieve"
+echo "    ~/.claude/bin/claude-env"
+echo "    ~/.claude/bin/claude-env-setup"
+echo "    ~/.claude/credentials/ (700 perms)"
 if [[ -f "$HOME/.config/zed/settings.json" ]]; then
 echo "    ~/.config/zed/settings.json (agent_servers + context_servers)"
 fi
 echo ""
 echo "  Start Claude Code and type: rs ${FIRST_ENV:-dev}"
+echo ""
+echo "  Multi-account setup (optional):"
+echo "    1. Log into personal account:  claude"
+echo "    2. Capture credentials:         claude-env-setup personal"
+echo "    3. Log into work account:       claude /logout, then re-auth"
+echo "    4. Capture credentials:         claude-env-setup work"
+echo "    5. Add auth blocks to config.yaml (see config.example.yaml)"
+echo "    6. Launch with:                 claude-env <environment>"
 echo ""
