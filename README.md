@@ -46,11 +46,11 @@ This repo adds the hooks, templates, Pensieve CLI, Docker Compose stack, and ins
 |  +--------------+  +--------------+  +----------------+  |
 |         ^                                                |
 |         |                                                |
-|  +------+-------+                                        |
-|  |   pensieve   |  CLI for managing persistent knowledge |
-|  |   ~/.claude/ |  add / search / import / remove        |
-|  |   bin/       |                                        |
-|  +--------------+                                        |
+|  +------+-------+  +--------------+                       |
+|  |   pensieve   |  |  claude-env  | Credential switching  |
+|  |   ~/.claude/ |  |  claude-env  | + launcher            |
+|  |   bin/       |  |  -setup      | Credential capture    |
+|  +--------------+  +--------------+                       |
 |                                                          |
 +----------------------------------------------------------+
 ```
@@ -110,7 +110,8 @@ The installer auto-detects whether you need the full Docker stack or just the ho
 
 - Installs hooks and configures `~/.claude/settings.json` (including `autoCompact: false`)
 - Adds `@contexts-workflow.md` to `~/.claude/CLAUDE.md`
-- Installs the Pensieve CLI to `~/.claude/bin/`
+- Installs the Pensieve CLI, `claude-env`, and `claude-env-setup` to `~/.claude/bin/`
+- Creates `~/.claude/credentials/` (700 perms) for multi-account credential profiles
 - Configures Zed editor if detected (`agent_servers` + `context_servers`)
 - Auto-detects your `claude` binary (or wrapper) for the Zed agent config
 
@@ -242,6 +243,79 @@ Map directories to environments in `~/.claude/env/cwd-map.conf`:
 /home/user/ml-pipeline=research
 ```
 
+## Multi-Account Auth Switching
+
+Claude Code has no native multi-account support. `claude-env` works around this by swapping credentials before launch based on the environment's auth configuration.
+
+### Setup
+
+```bash
+# 1. Log into your personal account
+claude          # authenticate, then exit
+
+# 2. Capture those credentials
+claude-env-setup personal
+
+# 3. Log into your work account
+claude          # /logout, re-authenticate, then exit
+
+# 4. Capture those credentials
+claude-env-setup work
+```
+
+Profiles are stored in `~/.claude/credentials/` with 600 permissions.
+
+### Configuration
+
+Add `auth` blocks to your `config.yaml` environments:
+
+```yaml
+environments:
+  homelab:
+    url: http://relay-mcp:8000
+    auth:
+      type: oauth
+      profile: personal       # ~/.claude/credentials/personal.json
+  corp:
+    url: https://mcp.corp.example.com
+    auth:
+      type: oauth
+      profile: work           # ~/.claude/credentials/work.json
+  ci:
+    auth:
+      type: api_key
+      env_var: ANTHROPIC_API_KEY_CI  # reads from this env var
+```
+
+### Usage
+
+```bash
+claude-env homelab            # activates personal creds, launches claude
+claude-env corp               # activates work creds, launches claude
+claude-env corp --model opus  # extra args passed through to claude
+```
+
+### Auth Types
+
+| Type | Config | Behavior |
+|------|--------|----------|
+| `oauth` | `profile: <name>` | Activates named credential profile via OS credential store |
+| `api_key` | `env_var: <VAR>` | Exports the named env var as `ANTHROPIC_API_KEY` |
+| *(absent)* | no `auth` block | No credential switching, launches normally |
+
+### Platform Details
+
+Credential profiles are always stored as flat JSON files. The platform-specific part is only activation:
+
+- **Linux**: Copies profile to `~/.claude/.credentials.json`
+- **macOS**: Updates the System Keychain entry (`Claude Code-credentials`)
+
+If contexts-mcp is unreachable, `claude-env` warns and launches without credential switching. If a profile file is missing, it fails with instructions to run `claude-env-setup`.
+
+### Mid-Session Environment Switch
+
+When using `load <env>` inside a running session and the auth profile differs from the current credentials, the new profile is activated for the next launch and a restart warning is displayed. The current session continues unchanged.
+
 ## Registering MCP Servers
 
 MCP servers are managed through relay-mcp, not in Claude Code's settings directly. Register servers via the relay API or its config file. See [relay-mcp documentation](https://github.com/psteinbachs/mcp-relay) for details.
@@ -285,6 +359,7 @@ environments:
 | `CONTEXTS_URL` | `localhost:8100` | contexts-mcp API URL |
 | `CONTEXTS_PORT` | `8100` | Docker-exposed port |
 | `CONTEXTS_DEFAULT_ENV` | `dev` | Fallback environment name |
+| `CLAUDE_MCP_ENV` | *(unset)* | Set by `claude-env` to the active environment name |
 
 ### Zed Editor
 
@@ -316,7 +391,8 @@ To use a custom wrapper, place it next to the `claude` binary with the name `cla
 rm ~/.claude/hooks/{context-monitor,context-autosave,session-restore,precompact-save}.sh
 rm -rf ~/.claude/hooks/lib/
 rm ~/.claude/{mcp-connect,statusline,contexts-workflow}.sh
-rm ~/.claude/bin/pensieve
+rm ~/.claude/bin/{pensieve,claude-env,claude-env-setup}
+rm -rf ~/.claude/credentials/  # remove saved credential profiles
 
 # Remove Docker stack (if full install)
 cd /path/to/contexts-workflow
