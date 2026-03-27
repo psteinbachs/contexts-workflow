@@ -390,8 +390,29 @@ else
     info "No running stack detected. Full install."
     echo ""
 
-    # Check Docker
-    check_prereq docker "Install: https://docs.docker.com/get-docker/" || exit 1
+    # Check Docker — auto-install on Linux if missing
+    if ! command -v docker &>/dev/null; then
+        if [[ "$OS" == "Linux" ]]; then
+            info "Docker not found. Installing via https://get.docker.com ..."
+            curl -fsSL https://get.docker.com | sh
+            if ! command -v docker &>/dev/null; then
+                err "Docker install script finished but docker binary not found in PATH."
+                exit 1
+            fi
+            ok "Docker installed"
+            # Add current user to docker group so sudo isn't required
+            if ! groups | grep -q docker; then
+                info "Adding $USER to docker group (takes effect on next login)..."
+                sudo usermod -aG docker "$USER"
+                warn "You may need to log out and back in (or run 'newgrp docker') for group membership to take effect."
+            fi
+        else
+            err "Docker not found. Install: https://docs.docker.com/get-docker/"
+            exit 1
+        fi
+    else
+        ok "docker found"
+    fi
     if ! docker compose version &>/dev/null; then
         err "docker compose (v2) not found. Install Docker Compose v2."
         exit 1
