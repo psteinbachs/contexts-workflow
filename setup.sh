@@ -454,6 +454,7 @@ else
     echo ""
 
     # Check Docker — auto-install on Linux if missing
+    DOCKER_JUST_INSTALLED=false
     if ! command -v docker &>/dev/null; then
         if [[ "$OS" == "Linux" ]]; then
             info "Docker not found. Installing via https://get.docker.com ..."
@@ -465,9 +466,9 @@ else
             ok "Docker installed"
             # Add current user to docker group so sudo isn't required
             if ! groups | grep -q docker; then
-                info "Adding $USER to docker group (takes effect on next login)..."
+                info "Adding $USER to docker group..."
                 sudo usermod -aG docker "$USER"
-                warn "You may need to log out and back in (or run 'newgrp docker') for group membership to take effect."
+                DOCKER_JUST_INSTALLED=true
             fi
         else
             err "Docker not found. Install: https://docs.docker.com/get-docker/"
@@ -521,8 +522,13 @@ else
     echo ""
     info "Building and starting stack..."
     cd "$SCRIPT_DIR"
-    docker compose build
-    docker compose up -d
+    if $DOCKER_JUST_INSTALLED; then
+        sg docker -c "docker compose build"
+        sg docker -c "docker compose up -d"
+    else
+        docker compose build
+        docker compose up -d
+    fi
 
     # Health check with timeout
     info "Waiting for stack to become healthy (up to 120s)..."
