@@ -57,12 +57,75 @@ check_prereq() {
     ok "$1 found"
 }
 
+install_linux_pkg() {
+    local cmd="$1"
+    local pkg="${2:-$1}"
+    if [[ "$OS" != "Linux" ]]; then
+        return 1
+    fi
+    if command -v apt-get &>/dev/null; then
+        info "Installing $pkg via apt-get..."
+        sudo apt-get update -qq && sudo apt-get install -y -qq "$pkg"
+    elif command -v dnf &>/dev/null; then
+        info "Installing $pkg via dnf..."
+        sudo dnf install -y -q "$pkg"
+    elif command -v yum &>/dev/null; then
+        info "Installing $pkg via yum..."
+        sudo yum install -y -q "$pkg"
+    else
+        return 1
+    fi
+    command -v "$cmd" &>/dev/null
+}
+
+install_node_linux() {
+    if [[ "$OS" != "Linux" ]]; then
+        return 1
+    fi
+    if command -v apt-get &>/dev/null; then
+        info "Installing Node.js LTS via NodeSource..."
+        curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
+        sudo apt-get install -y -qq nodejs
+    elif command -v dnf &>/dev/null; then
+        curl -fsSL https://rpm.nodesource.com/setup_lts.x | sudo -E bash -
+        sudo dnf install -y -q nodejs
+    elif command -v yum &>/dev/null; then
+        curl -fsSL https://rpm.nodesource.com/setup_lts.x | sudo -E bash -
+        sudo yum install -y -q nodejs
+    else
+        return 1
+    fi
+    command -v npx &>/dev/null
+}
+
 check_common_prereqs() {
-    local ok=true
-    check_prereq jq "Install: apt install jq / brew install jq" || ok=false
-    check_prereq curl "Install: apt install curl / brew install curl" || ok=false
-    check_prereq npx "Install: npm install -g npx (from Node.js)" || ok=false
-    $ok || { err "Missing prerequisites. Install them and re-run."; exit 1; }
+    local all_ok=true
+
+    for cmd in jq curl; do
+        if ! command -v "$cmd" &>/dev/null; then
+            if install_linux_pkg "$cmd"; then
+                ok "$cmd installed"
+            else
+                err "Required: $cmd not found. Install: apt install $cmd / brew install $cmd"
+                all_ok=false
+            fi
+        else
+            ok "$cmd found"
+        fi
+    done
+
+    if ! command -v npx &>/dev/null; then
+        if install_node_linux; then
+            ok "npx installed (via Node.js)"
+        else
+            err "Required: npx not found. Install Node.js: https://nodejs.org/"
+            all_ok=false
+        fi
+    else
+        ok "npx found"
+    fi
+
+    $all_ok || { err "Missing prerequisites. Install them and re-run."; exit 1; }
 }
 
 # --- URL substitution helper ---
