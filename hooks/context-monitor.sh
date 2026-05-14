@@ -28,8 +28,12 @@ ENV=$(detect_env "$CWD")
 # If no direct token count, estimate by parsing JSONL transcript
 if [[ -z "$USED_TOKENS" ]]; then
     if [[ -n "$TRANSCRIPT_PATH" && -f "$TRANSCRIPT_PATH" ]]; then
-        # Parse JSONL: sum content lengths from recent messages, divide by ~4 chars/token
-        # Only look at last 3MB to stay performant
+        # Parse JSONL: sum content lengths from recent messages, divide by ~4 chars/token.
+        # Only look at last 3MB to stay performant.
+        # `|| true` swallows pipefail; an `|| echo "0"` here would *append* a
+        # stray "0\n" after awk's number when the pipe exits non-zero (e.g.
+        # jq erroring on a partial JSONL line from tail -c), producing a
+        # multi-line value that crashes the later `[[ -gt ]]` test.
         ESTIMATED_TOKENS=$(tail -c 3145728 "$TRANSCRIPT_PATH" 2>/dev/null | \
             jq -r '
                 .content |
@@ -38,11 +42,13 @@ if [[ -z "$USED_TOKENS" ]]; then
                 elif type == "string" then length
                 else 0 end
             ' 2>/dev/null | \
-            awk '{sum += $1} END {print int(sum/4)}' || echo "0")
+            awk '{sum += $1} END {print int(sum/4)+0}' 2>/dev/null || true)
+        ESTIMATED_TOKENS="${ESTIMATED_TOKENS:-0}"
 
         # Fallback if jq parsing fails
-        if [[ -z "$ESTIMATED_TOKENS" || "$ESTIMATED_TOKENS" == "0" ]]; then
-            RECENT_LINES=$(tail -c 2097152 "$TRANSCRIPT_PATH" 2>/dev/null | wc -l || echo "0")
+        if [[ "$ESTIMATED_TOKENS" == "0" ]]; then
+            RECENT_LINES=$(tail -c 2097152 "$TRANSCRIPT_PATH" 2>/dev/null | wc -l 2>/dev/null || true)
+            RECENT_LINES="${RECENT_LINES:-0}"
             ESTIMATED_TOKENS=$((RECENT_LINES * 50))
         fi
 

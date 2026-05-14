@@ -32,7 +32,12 @@ ENV=$(detect_env "$CWD")
 
 # Estimate tokens from transcript
 if [[ -n "$TRANSCRIPT_PATH" && -f "$TRANSCRIPT_PATH" ]]; then
-    # Parse JSONL: sum content lengths, divide by ~4 chars/token
+    # Parse JSONL: sum content lengths, divide by ~4 chars/token.
+    # `|| true` swallows pipefail (jq errors on partial JSONL lines from
+    # tail -c are expected); awk emits 0 on empty input so no append needed.
+    # An `|| echo "0"` here would *append* a stray "0\n" after awk's number
+    # when the pipe exits non-zero, producing a multi-line value that
+    # crashes the later `[[ -gt ]]` test.
     ESTIMATED_TOKENS=$(tail -c 3145728 "$TRANSCRIPT_PATH" 2>/dev/null | \
         jq -r '
             .content |
@@ -41,11 +46,13 @@ if [[ -n "$TRANSCRIPT_PATH" && -f "$TRANSCRIPT_PATH" ]]; then
             elif type == "string" then length
             else 0 end
         ' 2>/dev/null | \
-        awk '{sum += $1} END {print int(sum/4)}' || echo "0")
+        awk '{sum += $1} END {print int(sum/4)+0}' 2>/dev/null || true)
+    ESTIMATED_TOKENS="${ESTIMATED_TOKENS:-0}"
 
     # Fallback
-    if [[ -z "$ESTIMATED_TOKENS" || "$ESTIMATED_TOKENS" == "0" ]]; then
-        RECENT_LINES=$(tail -c 2097152 "$TRANSCRIPT_PATH" 2>/dev/null | wc -l || echo "0")
+    if [[ "$ESTIMATED_TOKENS" == "0" ]]; then
+        RECENT_LINES=$(tail -c 2097152 "$TRANSCRIPT_PATH" 2>/dev/null | wc -l 2>/dev/null || true)
+        RECENT_LINES="${RECENT_LINES:-0}"
         ESTIMATED_TOKENS=$((RECENT_LINES * 50))
     fi
 
