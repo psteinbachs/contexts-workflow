@@ -340,12 +340,17 @@ All hooks use `CONTEXTS_URL` environment variable (default: `localhost:8100`).
 ```yaml
 qdrant:
   url: http://qdrant:6333
-  collection: sessions
+  collections:
+    sessions: session-memory    # session storage
+    context: global-context     # long-term knowledge / pensieve
 
 environments:
   dev:
     description: "Development"
-    relay_url: http://relay-mcp:8000
+    url: http://relay-mcp:8000          # MCP relay for this env
+    # auth:                             # see "Multi-Account Auth Switching"
+    #   type: oauth
+    #   profile: personal
     # critical_directive: "Safety rule shown at session start"
     # statusline:
     #   bg_rgb: "76;86;106"

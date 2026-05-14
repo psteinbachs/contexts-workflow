@@ -10,7 +10,7 @@ qdrant:
 environments:
   dev:
     description: "Development environment"
-    relay_url: http://relay-mcp:8000
+    url: http://relay-mcp:8000
     # statusline:
     #   bg_rgb: "76;86;106"
     #   icon: ""
@@ -18,7 +18,7 @@ environments:
   # Example: production environment with a critical directive
   # prod:
   #   description: "Production infrastructure"
-  #   relay_url: http://relay-mcp:8000
+  #   url: http://relay-mcp:8000
   #   critical_directive: "Never modify production databases without explicit approval"
   #   statusline:
   #     bg_rgb: "191;97;106"

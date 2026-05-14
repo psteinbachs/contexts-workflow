@@ -33,11 +33,8 @@ ENV=$(detect_env "$CWD")
 # Estimate tokens from transcript
 if [[ -n "$TRANSCRIPT_PATH" && -f "$TRANSCRIPT_PATH" ]]; then
     # Parse JSONL: sum content lengths, divide by ~4 chars/token.
-    # `|| true` swallows pipefail (jq errors on partial JSONL lines from
-    # tail -c are expected); awk emits 0 on empty input so no append needed.
-    # An `|| echo "0"` here would *append* a stray "0\n" after awk's number
-    # when the pipe exits non-zero, producing a multi-line value that
-    # crashes the later `[[ -gt ]]` test.
+    # `tail -c` can cut mid-line so jq sees a partial record and errors;
+    # swallow that with `|| true` and default empty output to "0".
     ESTIMATED_TOKENS=$(tail -c 3145728 "$TRANSCRIPT_PATH" 2>/dev/null | \
         jq -r '
             .content |

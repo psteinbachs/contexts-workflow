@@ -30,10 +30,8 @@ if [[ -z "$USED_TOKENS" ]]; then
     if [[ -n "$TRANSCRIPT_PATH" && -f "$TRANSCRIPT_PATH" ]]; then
         # Parse JSONL: sum content lengths from recent messages, divide by ~4 chars/token.
         # Only look at last 3MB to stay performant.
-        # `|| true` swallows pipefail; an `|| echo "0"` here would *append* a
-        # stray "0\n" after awk's number when the pipe exits non-zero (e.g.
-        # jq erroring on a partial JSONL line from tail -c), producing a
-        # multi-line value that crashes the later `[[ -gt ]]` test.
+        # `tail -c` can cut mid-line so jq sees a partial record and errors;
+        # swallow that with `|| true` and default empty output to "0".
         ESTIMATED_TOKENS=$(tail -c 3145728 "$TRANSCRIPT_PATH" 2>/dev/null | \
             jq -r '
                 .content |
